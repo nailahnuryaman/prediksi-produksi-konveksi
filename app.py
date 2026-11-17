@@ -225,6 +225,27 @@ if uploaded_file is not None:
         )
 
         if st.sidebar.button("Proses File Excel", use_container_width=True):
+            # Proses data PO Bulanan jika kolom "Jumlah PO" tersedia
             if "Jumlah PO" in df_up.columns:
                 df_b_baru = df_up.dropna(subset=["Jumlah PO"]).copy()
-                df_
+                if "Status Data" in df_b_baru.columns:
+                    df_b_baru = df_b_baru[df_b_baru["Status Data"] != "Prediksi"]
+
+                rows_b = []
+                for _, r in df_b_baru.iterrows():
+                    p = int(r["Periode"])
+                    thn, bln = hitung_tahun_bulan(p)
+                    rows_b.append({
+                        "Tahun": int(r["Tahun"]) if "Tahun" in r and pd.notna(r["Tahun"]) else thn,
+                        "Bulan": str(r["Bulan"]) if "Bulan" in r and pd.notna(r["Bulan"]) else bln,
+                        "Periode": p,
+                        "Jumlah PO": int(r["Jumlah PO"]),
+                        "Status Data": "Aktual"
+                    })
+                df_b_clean = pd.DataFrame(rows_b)
+
+                if mode_import == "Ganti seluruh data dengan file ini":
+                    st.session_state.df_bulanan = df_b_clean
+                else:
+                    gabung_b = pd.concat([st.session_state.df_bulanan, df_b_clean], ignore_index=True)
+                    st.session_state.df_bulanan = gabung_b.drop_duplicates(subset=["Periode"], keep="last").sort_values("Periode").reset_index(drop
