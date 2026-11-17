@@ -144,3 +144,36 @@ def inisialisasi_data():
                 "Bulan": bln,
                 "Periode": idx,
                 "WORKJACKET": data_prod["WORKJACKET"][idx - 1],
+                "VARSITY": data_prod["VARSITY"][idx - 1],
+                "COACH": data_prod["COACH"][idx - 1],
+                "Status Data": "Aktual"
+            })
+        st.session_state.df_produk = pd.DataFrame(rows)
+        st.session_state.daftar_produk = ["WORKJACKET", "VARSITY", "COACH"]
+
+    if "mode_edit_bulanan" not in st.session_state:
+        st.session_state.mode_edit_bulanan = False
+    if "mode_edit_produk" not in st.session_state:
+        st.session_state.mode_edit_produk = False
+
+def buat_prediksi_3_bulan(df_aktual: pd.DataFrame, kolom_target: list):
+    X = df_aktual[["Periode"]].values
+    periode_terakhir = int(df_aktual["Periode"].max())
+    periode_depan = np.arange(periode_terakhir + 1, periode_terakhir + 4).reshape(-1, 1)
+
+    rows_pred = []
+    for p in periode_depan.flatten():
+        thn, bln = hitung_tahun_bulan(int(p))
+        rows_pred.append({
+            "Tahun": thn,
+            "Bulan": bln,
+            "Periode": int(p),
+            "Status Data": "Prediksi"
+        })
+
+    df_pred = pd.DataFrame(rows_pred)
+
+    for col in kolom_target:
+        y = df_aktual[col].fillna(0).values
+        model = LinearRegression()
+        model.fit(X, y)
