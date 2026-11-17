@@ -408,4 +408,143 @@ elif halaman == "2. Peramalan Produk Utama":
             else:
                 df_input_hist = df_akt_prod[["Tahun", "Bulan", "Periode"]].copy()
                 df_input_hist[nama_prod_baru] = 0
-                edited_hist = st.data_
+                edited_hist = st.data_editor(
+                    df_input_hist,
+                    disabled=["Tahun", "Bulan", "Periode"],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=260,
+                    key="editor_produk_baru"
+                )
+                if st.button("💾 Tambahkan Produk ke Tabel & Grafik"):
+                    st.session_state.df_produk[nama_prod_baru] = edited_hist[nama_prod_baru].fillna(0).astype(int)
+                    st.session_state.daftar_produk.append(nama_prod_baru)
+                    st.success(f"Produk **{nama_prod_baru}** berhasil ditambahkan!")
+                    st.rerun()
+
+    baris_pred_p1 = df_pred_prod.iloc[0]
+    p_target = int(baris_pred_p1["Periode"])
+    bln_target = baris_pred_p1["Bulan"]
+    thn_target = int(baris_pred_p1["Tahun"])
+
+    with st.container(border=True):
+        st.subheader(f"✏️ Input Realisasi Aktual Produk: {bln_target} {thn_target} (Periode {p_target})")
+        st.write(f"Ubah angka prediksi bulan **{bln_target} {thn_target}** menjadi data realisasi aktual:")
+
+        cols_input = st.columns(len(daftar_prod))
+        nilai_baru_dict = {}
+        for idx, prod in enumerate(daftar_prod):
+            with cols_input[idx]:
+                nilai_baru_dict[prod] = st.number_input(
+                    f"{prod} (pcs):",
+                    min_value=0,
+                    value=int(baris_pred_p1[prod]),
+                    step=5,
+                    key=f"in_{prod}_{p_target}"
+                )
+
+        if st.button("✅ Simpan Realisasi & Update Prediksi", type="primary"):
+            new_row = {
+                "Tahun": thn_target,
+                "Bulan": bln_target,
+                "Periode": p_target,
+                "Status Data": "Aktual"
+            }
+            for prod in daftar_prod:
+                new_row[prod] = int(nilai_baru_dict[prod])
+
+            st.session_state.df_produk = pd.concat([df_akt_prod, pd.DataFrame([new_row])], ignore_index=True)
+            st.success(f"Realisasi produk bulan {bln_target} {thn_target} tersimpan sebagai Aktual! Prediksi baru otomatis ditambahkan.")
+            st.rerun()
+
+    col_hdr_p, col_edit_btn_p = st.columns([3, 1])
+    with col_hdr_p:
+        st.subheader("📋 Tabel Historis & Proyeksi Produk Utama")
+    with col_edit_btn_p:
+        st.write("")
+        if not st.session_state.mode_edit_produk:
+            if st.button("✏️ Edit Data Historis", key="btn_edit_prod", use_container_width=True):
+                st.session_state.mode_edit_produk = True
+                st.rerun()
+        else:
+            if st.button("❌ Batal Edit", key="btn_batal_prod", use_container_width=True):
+                st.session_state.mode_edit_produk = False
+                st.rerun()
+
+    if st.session_state.mode_edit_produk:
+        st.info("Mode Edit Aktif: Silakan koreksi angka historis produk di bawah ini jika ada kesalahan input, lalu klik **Simpan Perubahan**.")
+        edited_prod = st.data_editor(
+            df_akt_prod,
+            disabled=["Tahun", "Bulan", "Periode", "Status Data"],
+            hide_index=True,
+            use_container_width=True,
+            height=450,
+            key="editor_hist_produk"
+        )
+        if st.button("💾 Simpan Perubahan Data Produk", type="primary"):
+            for prod in daftar_prod:
+                edited_prod[prod] = edited_prod[prod].fillna(0).astype(int)
+            st.session_state.df_produk = edited_prod
+            st.session_state.mode_edit_produk = False
+            st.success("Perubahan data historis produk berhasil disimpan!")
+            st.rerun()
+    else:
+        fmt_dict = {prod: "{:,}" for prod in daftar_prod}
+        styled_prod = df_gabungan_prod.style.apply(warnai_baris_prediksi, axis=1).format(fmt_dict)
+        st.dataframe(styled_prod, use_container_width=True, height=480, hide_index=True)
+
+        col_dlp1, col_dlp2 = st.columns(2)
+        with col_dlp1:
+            csv_prod = df_gabungan_prod.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Prediksi Produk (CSV)",
+                data=csv_prod,
+                file_name="prediksi_produk_utama.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with col_dlp2:
+            excel_prod = buat_file_excel(df_gabungan_prod, "Produk Utama", daftar_prod)
+            st.download_button(
+                "📊 Download Prediksi Produk (Excel)",
+                data=excel_prod,
+                file_name="prediksi_produk_utama.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+    st.markdown("---")
+
+    st.subheader("📈 Grafik Tren Aktual & Prediksi per Produk")
+    palette = ["#1E3A5F", "#D97706", "#059669", "#7C3AED", "#DC2626", "#0284C7"]
+    fig_prod = go.Figure()
+
+    for i, prod in enumerate(daftar_prod):
+        warna = palette[i % len(palette)]
+        fig_prod.add_trace(go.Scatter(
+            x=df_akt_prod["Periode"],
+            y=df_akt_prod[prod],
+            mode="lines+markers",
+            name=f"{prod} (Aktual)",
+            line=dict(color=warna, width=2.5),
+            marker=dict(size=5)
+        ))
+        df_sambung = pd.concat([df_akt_prod.tail(1), df_pred_prod], ignore_index=True)
+        fig_prod.add_trace(go.Scatter(
+            x=df_sambung["Periode"],
+            y=df_sambung[prod],
+            mode="lines+markers",
+            name=f"{prod} (Prediksi)",
+            line=dict(color=warna, width=2.5, dash="dash"),
+            marker=dict(size=8, symbol="diamond")
+        ))
+
+    fig_prod.update_layout(
+        xaxis_title="Periode (Bulan ke-)",
+        yaxis_title="Jumlah PO (pcs)",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=480,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_prod, use_container_width=True)
