@@ -2,83 +2,350 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
+import plotly.graph_objects as go
 
-# 1. Konfigurasi Halaman Web
-st.set_page_config(page_title="Dashboard Peramalan PO", layout="wide")
-st.title("📊 Dashboard Peramalan Jumlah PO Konveksi")
-st.write("Upload file rekap data PO untuk melihat proyeksi produksi bulan berikutnya.")
+st.set_page_config(page_title="Dashboard Peramalan PO Konveksi", layout="wide")
 
-# 2. Fitur Upload File
-uploaded_file = st.file_uploader("Upload file Excel (.xlsx) atau CSV", type=["xlsx", "csv"])
+NAMA_BULAN = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+]
 
-if uploaded_file is not None:
-    # Membaca data
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
-    
-    st.subheader("1. Data Historis PO")
-    st.dataframe(df.head(10)) # Menampilkan 10 baris pertama
+def hitung_tahun_bulan(periode: int):
+    # Periode 1 = Maret 2024 (index bulan = 2 dari 0-based)
+    total_bulan = (2024 * 12 + 2) + (periode - 1)
+    tahun = total_bulan // 12
+    bulan = NAMA_BULAN[total_bulan % 12]
+    return tahun, bulan
 
-    # 3. Pengaturan Parameter di Sidebar (Panel Samping)
-    st.sidebar.header("Pengaturan Peramalan")
-    
-    # Pilih kolom produk (mengabaikan kolom Tahun, Bulan, Periode)
-    kolom_non_produk = ['Tahun', 'Bulan', 'Periode']
-    daftar_produk = [col for col in df.columns if col not in kolom_non_produk]
-    
-    produk_pilihan = st.sidebar.multiselect(
-        "Pilih Produk untuk Diramal (Disarankan Top 3):",
-        options=daftar_produk,
-        default=daftar_produk[:3] # Otomatis memilih 3 produk pertama
-    )
-    
-    bulan_prediksi = st.sidebar.slider("Jumlah Periode ke Depan yang Diramal:", 1, 12, 3)
+def inisialisasi_data():
+    if "df_bulanan" not in st.session_state:
+        # Data historis Periode 1 - 32 sesuai tabel gambar
+        po_bulanan = [
+            974, 924, 1622, 1301, 736, 710, 1611, 975, 1075, 972,       # 2024 (1-10)
+            1420, 1071, 1137, 1213, 1630, 1411, 877, 1657, 2175, 1539, 1135, 798, # 2025 (11-22)
+            1207, 1231, 807, 1380, 886, 807, 942, 1052, 2043, 1728      # 2026 (23-32)
+        ]
+        rows = []
+        for idx, val in enumerate(po_bulanan, start=1):
+            thn, bln = hitung_tahun_bulan(idx)
+            rows.append({
+                "Tahun": thn,
+                "Bulan": bln,
+                "Periode": idx,
+                "Jumlah PO": int(val),
+                "Status Data": "Aktual"
+            })
+        st.session_state.df_bulanan = pd.DataFrame(rows)
 
-    # 4. Proses Perhitungan Regresi Linear
-    if produk_pilihan:
-        st.subheader("2. Hasil Peramalan (Regresi Linear)")
-        
-        # Pastikan data historis hanya mengambil baris yang sudah ada angka Periodenya
-        df_valid = df.dropna(subset=['Periode']).copy()
-        X = df_valid[['Periode']].values
-        periode_terakhir = int(df_valid['Periode'].max())
-        
-        # Membuat array periode masa depan
-        periode_depan = np.arange(periode_terakhir + 1, periode_terakhir + 1 + bulan_prediksi).reshape(-1, 1)
-        
-        hasil_forecast = pd.DataFrame({'Periode': periode_depan.flatten()})
-        
-        for produk in produk_pilihan:
-            # Mengisi nilai kosong dengan 0 untuk pelatihan model
-            y = df_valid[produk].fillna(0).values
-            
-            model = LinearRegression()
-            model.fit(X, y)
-            
-            prediksi = model.predict(periode_depan)
-            # Membulatkan hasil & mencegah angka negatif (minimal 0)
-            prediksi_bersih = np.maximum(0, np.round(prediksi)).astype(int)
-            hasil_forecast[produk] = prediksi_bersih
+    if "df_produk" not in st.session_state:
+        # Data historis Periode 1 - 32 sesuai tabel produk utama di gambar
+        data_prod = {
+            "WORKJACKET": [
+                281, 207, 575, 301, 193, 36, 345, 210, 0, 0,
+                579, 313, 237, 862, 217, 455, 228, 259, 391, 511, 547, 339,
+                687, 931, 265, 519, 329, 582, 720, 393, 1503, 1396
+            ],
+            "VARSITY": [
+                251, 544, 422, 818, 310, 560, 1203, 441, 594, 300,
+                523, 658, 790, 351, 562, 597, 509, 312, 432, 254, 491, 303,
+                333, 160, 100, 104, 204, 75, 70, 378, 100, 87
+            ],
+            "COACH": [
+                330, 90, 573, 134, 233, 101, 26, 151, 0, 122,
+                37, 64, 110, 0, 0, 0, 0, 0, 89, 197, 97, 71,
+                73, 24, 0, 15, 0, 0, 22, 150, 82, 137
+            ]
+        }
+        rows = []
+        for idx in range(1, 33):
+            thn, bln = hitung_tahun_bulan(idx)
+            row = {
+                "Tahun": thn,
+                "Bulan": bln,
+                "Periode": idx,
+                "WORKJACKET": data_prod["WORKJACKET"][idx - 1],
+                "VARSITY": data_prod["VARSITY"][idx - 1],
+                "COACH": data_prod["COACH"][idx - 1],
+                "Status Data": "Aktual"
+            }
+            rows.append(row)
+        st.session_state.df_produk = pd.DataFrame(rows)
+        st.session_state.daftar_produk = ["WORKJACKET", "VARSITY", "COACH"]
 
-        # Menampilkan Tabel Hasil
-        st.dataframe(hasil_forecast, use_container_width=True)
+def buat_prediksi_3_bulan(df_aktual: pd.DataFrame, kolom_target: list):
+    X = df_aktual[["Periode"]].values
+    periode_terakhir = int(df_aktual["Periode"].max())
+    periode_depan = np.arange(periode_terakhir + 1, periode_terakhir + 4).reshape(-1, 1)
 
-        # 5. Menampilkan Grafik Tren Gabungan
-        st.subheader("3. Grafik Tren Historis & Proyeksi")
-        df_gabungan = pd.concat([
-            df_valid[['Periode'] + produk_pilihan],
-            hasil_forecast
-        ], ignore_index=True).set_index('Periode')
-        
-        st.line_chart(df_gabungan)
-        
-        # 6. Tombol Download Hasil ke CSV
-        csv_hasil = hasil_forecast.to_csv(index=False).encode('utf-8')
+    rows_pred = []
+    for i, p in enumerate(periode_depan.flatten()):
+        thn, bln = hitung_tahun_bulan(int(p))
+        row = {
+            "Tahun": thn,
+            "Bulan": bln,
+            "Periode": int(p),
+            "Status Data": "Prediksi"
+        }
+        rows_pred.append(row)
+
+    df_pred = pd.DataFrame(rows_pred)
+
+    for col in kolom_target:
+        y = df_aktual[col].fillna(0).values
+        model = LinearRegression()
+        model.fit(X, y)
+        pred = model.predict(periode_depan)
+        df_pred[col] = np.maximum(0, np.round(pred)).astype(int)
+
+    # Susun urutan kolom agar Status Data selalu di paling kanan
+    kolom_urut = ["Tahun", "Bulan", "Periode"] + kolom_target + ["Status Data"]
+    return df_pred[kolom_urut]
+
+def warnai_baris_prediksi(row):
+    if row["Status Data"] == "Prediksi":
+        return ["background-color: #FEF9C3; color: #1E293B; font-weight: bold"] * len(row)
+    return [""] * len(row)
+
+inisialisasi_data()
+
+# --- SIDEBAR NAVIGASI ---
+st.sidebar.title("📌 Menu Navigasi")
+halaman = st.sidebar.radio(
+    "Pilih Halaman:",
+    ["1. PO Bulanan", "2. Peramalan Produk Utama"]
+)
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Reset ke Data Awal (Periode 1–32)"):
+    for key in ["df_bulanan", "df_produk", "daftar_produk"]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
+
+# ==============================================================================
+# HALAMAN 1: PO BULANAN
+# ==============================================================================
+if halaman == "1. PO Bulanan":
+    st.title("📦 Rekap & Peramalan PO Bulanan")
+    st.caption("Menampilkan seluruh data historis bulanan beserta proyeksi 3 bulan ke depan secara otomatis.")
+
+    df_akt = st.session_state.df_bulanan.copy()
+    df_pred = buat_prediksi_3_bulan(df_akt, ["Jumlah PO"])
+    df_gabungan = pd.concat([df_akt, df_pred], ignore_index=True)
+
+    # --- FORM UPDATE PREDIKSI PERTAMA MENJADI AKTUAL ---
+    baris_pred_1 = df_pred.iloc[0]
+    p_target = int(baris_pred_1["Periode"])
+    bln_target = baris_pred_1["Bulan"]
+    thn_target = int(baris_pred_1["Tahun"])
+    val_pred_awal = int(baris_pred_1["Jumlah PO"])
+
+    with st.container(border=True):
+        st.subheader(f"✏️ Input Realisasi Aktual: {bln_target} {thn_target} (Periode {p_target})")
+        st.write(
+            f"Angka prediksi saat ini untuk **{bln_target} {thn_target}** adalah **{val_pred_awal:,} pcs**. "
+            "Jika data aktual bulan tersebut sudah keluar, ubah angkanya di bawah ini:"
+        )
+        col_in, col_btn = st.columns([2, 1])
+        with col_in:
+            nilai_aktual_baru = st.number_input(
+                f"Jumlah PO Aktual ({bln_target} {thn_target}):",
+                min_value=0,
+                value=val_pred_awal,
+                step=10,
+                key=f"input_bulanan_{p_target}"
+            )
+        with col_btn:
+            st.write("")
+            st.write("")
+            if st.button("✅ Simpan & Ubah Jadi Aktual", type="primary", use_container_width=True):
+                baris_baru = pd.DataFrame([{
+                    "Tahun": thn_target,
+                    "Bulan": bln_target,
+                    "Periode": p_target,
+                    "Jumlah PO": int(nilai_aktual_baru),
+                    "Status Data": "Aktual"
+                }])
+                st.session_state.df_bulanan = pd.concat([df_akt, baris_baru], ignore_index=True)
+                st.success(f"Data {bln_target} {thn_target} berhasil diubah menjadi Aktual! Prediksi baru otomatis ditambahkan.")
+                st.rerun()
+
+    # --- TABEL & GRAFIK ---
+    col_tbl, col_chart = st.columns([1.15, 1.35])
+
+    with col_tbl:
+        st.subheader("📋 Tabel Data Historis & Prediksi")
+        styled_df = df_gabungan.style.apply(warnai_baris_prediksi, axis=1).format({"Jumlah PO": "{:,}"})
+        st.dataframe(styled_df, use_container_width=True, height=560, hide_index=True)
+
+        csv_data = df_gabungan.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Tabel Hasil Peramalan (CSV)",
-            data=csv_hasil,
-            file_name="hasil_peramalan_po.csv",
+            "📥 Download Tabel PO Bulanan (CSV)",
+            data=csv_data,
+            file_name="rekap_dan_prediksi_po_bulanan.csv",
             mime="text/csv"
         )
+
+    with col_chart:
+        st.subheader("📈 Grafik Tren PO Bulanan")
+        fig = go.Figure()
+
+        # Garis Data Aktual
+        fig.add_trace(go.Scatter(
+            x=df_akt["Periode"],
+            y=df_akt["Jumlah PO"],
+            mode="lines+markers",
+            name="Aktual",
+            line=dict(color="#1E3A5F", width=3),
+            marker=dict(size=6),
+            customdata=df_akt[["Bulan", "Tahun"]],
+            hovertemplate="<b>%{customdata[0]} %{customdata[1]}</b> (Periode %{x})<br>Jumlah PO: %{y:,} pcs<extra></extra>"
+        ))
+
+        # Garis Data Prediksi (menyambung dari titik aktual terakhir)
+        df_sambung_pred = pd.concat([df_akt.tail(1), df_pred], ignore_index=True)
+        fig.add_trace(go.Scatter(
+            x=df_sambung_pred["Periode"],
+            y=df_sambung_pred["Jumlah PO"],
+            mode="lines+markers",
+            name="Prediksi (3 Bulan ke Depan)",
+            line=dict(color="#D97706", width=3, dash="dash"),
+            marker=dict(size=8, symbol="diamond"),
+            customdata=df_sambung_pred[["Bulan", "Tahun"]],
+            hovertemplate="<b>%{customdata[0]} %{customdata[1]}</b> (Periode %{x})<br>Proyeksi PO: %{y:,} pcs<extra></extra>"
+        ))
+
+        fig.update_layout(
+            xaxis_title="Periode (Bulan ke-)",
+            yaxis_title="Jumlah PO (pcs)",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=520,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+# ==============================================================================
+# HALAMAN 2: PERAMALAN PRODUK UTAMA
+# ==============================================================================
+elif halaman == "2. Peramalan Produk Utama":
+    st.title("🧥 Peramalan Produk Utama (Terlaris)")
+    st.caption("Proyeksi 3 bulan ke depan per jenis produk utama. Dapat menambah produk baru & memperbarui realisasi bulanan.")
+
+    daftar_prod = st.session_state.daftar_produk
+    df_akt_prod = st.session_state.df_produk.copy()
+    df_pred_prod = buat_prediksi_3_bulan(df_akt_prod, daftar_prod)
+    df_gabungan_prod = pd.concat([df_akt_prod, df_pred_prod], ignore_index=True)
+
+    # --- EXPANDER: TAMBAH PRODUK BARU ---
+    with st.expander("➕ Tambah Produk Baru untuk Diprediksi"):
+        st.write("Masukkan nama produk baru dan isi data historis bulanannya (isi 0 jika belum ada pesanan di bulan tersebut):")
+        nama_prod_baru = st.text_input("Nama Jenis PO Baru (contoh: HOODIE, T-SHIRT, PDH):").strip().upper()
+
+        if nama_prod_baru:
+            if nama_prod_baru in daftar_prod:
+                st.warning(f"Produk **{nama_prod_baru}** sudah ada di dalam tabel.")
+            else:
+                df_input_hist = df_akt_prod[["Tahun", "Bulan", "Periode"]].copy()
+                df_input_hist[nama_prod_baru] = 0
+                edited_hist = st.data_editor(
+                    df_input_hist,
+                    disabled=["Tahun", "Bulan", "Periode"],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=260,
+                    key="editor_produk_baru"
+                )
+                if st.button("💾 Tambahkan Produk ke Tabel & Grafik"):
+                    st.session_state.df_produk[nama_prod_baru] = edited_hist[nama_prod_baru].fillna(0).astype(int)
+                    st.session_state.daftar_produk.append(nama_prod_baru)
+                    st.success(f"Produk **{nama_prod_baru}** berhasil ditambahkan!")
+                    st.rerun()
+
+    # --- FORM UPDATE PREDIKSI PERTAMA MENJADI AKTUAL ---
+    baris_pred_p1 = df_pred_prod.iloc[0]
+    p_target = int(baris_pred_p1["Periode"])
+    bln_target = baris_pred_p1["Bulan"]
+    thn_target = int(baris_pred_p1["Tahun"])
+
+    with st.container(border=True):
+        st.subheader(f"✏️ Input Realisasi Aktual Produk: {bln_target} {thn_target} (Periode {p_target})")
+        st.write(f"Ubah angka prediksi bulan **{bln_target} {thn_target}** menjadi data realisasi aktual:")
+
+        cols_input = st.columns(len(daftar_prod))
+        nilai_baru_dict = {}
+        for idx, prod in enumerate(daftar_prod):
+            with cols_input[idx]:
+                nilai_baru_dict[prod] = st.number_input(
+                    f"{prod} (pcs):",
+                    min_value=0,
+                    value=int(baris_pred_p1[prod]),
+                    step=5,
+                    key=f"in_{prod}_{p_target}"
+                )
+
+        if st.button("✅ Simpan Realisasi & Update Prediksi", type="primary"):
+            new_row = {
+                "Tahun": thn_target,
+                "Bulan": bln_target,
+                "Periode": p_target,
+                "Status Data": "Aktual"
+            }
+            for prod in daftar_prod:
+                new_row[prod] = int(nilai_baru_dict[prod])
+
+            st.session_state.df_produk = pd.concat([df_akt_prod, pd.DataFrame([new_row])], ignore_index=True)
+            st.success(f"Realisasi produk bulan {bln_target} {thn_target} tersimpan sebagai Aktual! Prediksi baru otomatis ditambahkan.")
+            st.rerun()
+
+    # --- TABEL GABUNGAN ---
+    st.subheader("📋 Tabel Historis & Proyeksi Produk Utama")
+    fmt_dict = {prod: "{:,}" for prod in daftar_prod}
+    styled_prod = df_gabungan_prod.style.apply(warnai_baris_prediksi, axis=1).format(fmt_dict)
+    st.dataframe(styled_prod, use_container_width=True, height=480, hide_index=True)
+
+    csv_prod = df_gabungan_prod.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📥 Download Tabel Prediksi Produk Utama (CSV)",
+        data=csv_prod,
+        file_name="prediksi_produk_utama.csv",
+        mime="text/csv"
+    )
+
+    # --- GRAFIK OTOMATIS PER PRODUK ---
+    st.subheader("📈 Grafik Tren Aktual & Prediksi per Produk")
+    palette = ["#1E3A5F", "#D97706", "#059669", "#7C3AED", "#DC2626", "#0284C7"]
+    fig_prod = go.Figure()
+
+    for i, prod in enumerate(daftar_prod):
+        warna = palette[i % len(palette)]
+        # Garis Aktual
+        fig_prod.add_trace(go.Scatter(
+            x=df_akt_prod["Periode"],
+            y=df_akt_prod[prod],
+            mode="lines+markers",
+            name=f"{prod} (Aktual)",
+            line=dict(color=warna, width=2.5),
+            marker=dict(size=5)
+        ))
+        # Garis Prediksi (menyambung dari titik aktual terakhir)
+        df_sambung = pd.concat([df_akt_prod.tail(1), df_pred_prod], ignore_index=True)
+        fig_prod.add_trace(go.Scatter(
+            x=df_sambung["Periode"],
+            y=df_sambung[prod],
+            mode="lines+markers",
+            name=f"{prod} (Prediksi)",
+            line=dict(color=warna, width=2.5, dash="dash"),
+            marker=dict(size=8, symbol="diamond")
+        ))
+
+    fig_prod.update_layout(
+        xaxis_title="Periode (Bulan ke-)",
+        yaxis_title="Jumlah PO (pcs)",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=500,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_prod, use_container_width=True)
