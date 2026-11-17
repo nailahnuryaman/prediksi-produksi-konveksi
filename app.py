@@ -16,19 +16,16 @@ NAMA_BULAN = [
 ]
 
 def hitung_tahun_bulan(periode: int):
-    # Periode 1 = Maret 2024 (index bulan = 2 dari 0-based)
     total_bulan = (2024 * 12 + 2) + (periode - 1)
     tahun = total_bulan // 12
     bulan = NAMA_BULAN[total_bulan % 12]
     return tahun, bulan
 
 def buat_file_excel_rapi(df: pd.DataFrame, judul_sheet: str, judul_laporan: str) -> bytes:
-    """Membuat file Excel (.xlsx) rapi dalam memori dengan styling header, border, & warna prediksi."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = judul_sheet[:31]
 
-    # Styling
     font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     font_hdr = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     font_data = Font(name="Calibri", size=10, color="1E293B")
@@ -45,7 +42,6 @@ def buat_file_excel_rapi(df: pd.DataFrame, judul_sheet: str, judul_laporan: str)
     jml_kolom = len(df.columns)
     last_col_letter = get_column_letter(jml_kolom)
 
-    # Judul Laporan di Baris 1
     ws.merge_cells(f"A1:{last_col_letter}1")
     ws["A1"] = judul_laporan
     ws["A1"].font = font_title
@@ -53,7 +49,6 @@ def buat_file_excel_rapi(df: pd.DataFrame, judul_sheet: str, judul_laporan: str)
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[1].height = 28
 
-    # Header Tabel di Baris 3
     ws.row_dimensions[3].height = 24
     for col_idx, col_name in enumerate(df.columns, start=1):
         cell = ws.cell(row=3, column=col_idx, value=col_name)
@@ -62,14 +57,11 @@ def buat_file_excel_rapi(df: pd.DataFrame, judul_sheet: str, judul_laporan: str)
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = border_cell
 
-    # Isi Data mulai Baris 4
     kolom_teks = {"Bulan", "Status Data"}
     kolom_tanpa_ribuan = {"Tahun", "Periode"}
 
     for row_idx, row_data in enumerate(df.itertuples(index=False), start=4):
         ws.row_dimensions[row_idx].height = 20
-        is_prediksi = (getattr(row_data, "_asdict")().get("Status Data") == "Prediksi") if "Status Data" in df.columns else False
-        # Cek Status Data berdasarkan posisi kolom terakhir
         status_val = row_data[-1] if "Status Data" in df.columns else ""
         is_prediksi = (status_val == "Prediksi")
 
@@ -92,7 +84,6 @@ def buat_file_excel_rapi(df: pd.DataFrame, judul_sheet: str, judul_laporan: str)
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 cell.number_format = "#,##0"
 
-    # Atur lebar kolom otomatis
     for col_idx, col_name in enumerate(df.columns, start=1):
         col_let = get_column_letter(col_idx)
         max_len = max(
@@ -200,7 +191,40 @@ def warnai_baris_prediksi(row):
 inisialisasi_data()
 
 # --- SIDEBAR NAVIGASI & UPLOAD EXCEL ---
-st.sidebar.title("📌 Menu Navigasi")
+st.sidebar.title("Menu Navigasi")
 halaman = st.sidebar.radio(
     "Pilih Halaman:",
-    ["1. PO Bulanan", "2.
+    ["1. PO Bulanan", "2. Peramalan Produk Utama"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Import Data dari Excel / CSV")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload file template Excel (.xlsx) atau CSV",
+    type=["xlsx", "csv"]
+)
+
+if uploaded_file is not None:
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df_up = pd.read_csv(uploaded_file)
+        else:
+            df_up = pd.read_excel(uploaded_file)
+
+        df_up.columns = [str(c).strip() for c in df_up.columns]
+        if "Tahun" in df_up.columns:
+            df_up["Tahun"] = df_up["Tahun"].ffill()
+
+        if "Periode" in df_up.columns:
+            df_up = df_up.dropna(subset=["Periode"]).copy()
+            df_up["Periode"] = df_up["Periode"].astype(int)
+
+        mode_import = st.sidebar.radio(
+            "Pilih cara memproses file:",
+            ["Tambahkan data baru ke dashboard", "Ganti seluruh data dengan file ini"]
+        )
+
+        if st.sidebar.button("Proses File Excel", use_container_width=True):
+            if "Jumlah PO" in df_up.columns:
+                df_b_baru = df_up.dropna(subset=["Jumlah PO"]).copy()
+                df_
